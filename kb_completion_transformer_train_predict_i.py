@@ -22,14 +22,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import pandas as pd
-import string, re, os
+import string, re, os, sys
 import math, random, functools
 from joblib import Parallel, delayed
 import logging
 import argparse
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-from pdb import set_trace as st
 
 
 logging.basicConfig(
@@ -506,9 +505,11 @@ parser.add_argument("-dN", "--datasetName", type=str,
     default="CSOIEGP",
     help = "Prefix name used for output directory naming")
 
-#parser.add_argument("-tN", "--testName", type=str,
-#    default="SD",
-#    help="Prefix name used for the generated csv prediction file")
+parser.add_argument("-gf", "--gridFile", type=str,
+    default="/home/vitrion/transformerGrid.csv",
+    help="Hyperparameter grid must have the following columns:"
+    " (i, stack_size, batch_size, sequence_length, "
+        "model_dim, embedding_dim, latent_dim, num_heads)")
 
 parser.add_argument("-i", "--index", type=int,
     default=0, help = "Start index")
@@ -553,7 +554,7 @@ dataset_name = args.datasetName
 # --------------------------------- MALLA -------------------------------------
 
 #with open('/home/vitrion/transformerGrid.csv') as f:
-with open('dummyTransformerGrid.csv') as f:
+with open(args.gridFile) as f:
     lines = f.readlines()
 lines = np.array(lines)
 #onlyIdxs = [318, 319, 320, 321, 322, 323]
