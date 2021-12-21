@@ -26,9 +26,10 @@ import string, re, os
 import math, random, functools
 from joblib import Parallel, delayed
 import logging
-from pdb import set_trace as st
 import argparse
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+from pdb import set_trace as st
 
 
 logging.basicConfig(
@@ -502,12 +503,12 @@ parser.add_argument("-ttD", "--testData", type=str,
     help = "Valid data (TSV file)")
 
 parser.add_argument("-dN", "--datasetName", type=str,
-    default="OIEGP",
+    default="CSOIEGP",
     help = "Prefix name used for output directory naming")
 
-parser.add_argument("-tN", "--testName", type=str,
-    default="SD",
-    help="Prefix name used for the generated csv prediction file")
+#parser.add_argument("-tN", "--testName", type=str,
+#    default="SD",
+#    help="Prefix name used for the generated csv prediction file")
 
 parser.add_argument("-i", "--index", type=int,
     default=0, help = "Start index")
@@ -547,7 +548,7 @@ validation_data = args.validData
 # Other settings
 n_demo = args.nDemo
 dataset_name = args.datasetName
-test_name = args.testName
+#test_name = args.testName
 
 # --------------------------------- MALLA -------------------------------------
 
@@ -581,10 +582,11 @@ for line in lines[args.index:]:
             " require a LONG TIME if --nDemo is not set to small integer. Go to"
             " your city downtown for a cofe, return and take a sit...")
 
-    checkpoint_path = ("results_final/{}-transformer_epochs"
+    checkpoint_path = ("results/transformer-{}_index-{}_epochs"
         "-{}_stackSize-{}_seqlen-{}_maxfeat-{}_batch-{}_keydim"
         "-{}_modeldim-{}_latent-{}_heads-{}/cp.ckpt".format(
         dataset_name,
+        str(i).zfill(3),
         n_epochs,
         stack_size,
         sequence_length,
@@ -596,10 +598,10 @@ for line in lines[args.index:]:
         num_heads)
     )
 
-    logging.info(checkpoint_path)
     checkpoint_dir = os.path.dirname(checkpoint_path)
-    out_dir = '/'.join(checkpoint_path.split('/')[:2]) + '/'
-    vectorizer_dir = out_dir.split('_e')[0] + '_vectorizer/'
+    logging.info(checkpoint_path)
+    out_dir = checkpoint_dir + '/'
+    vectorizer_dir = out_dir.split('_')[0] + '_vectorizer/'
     # Create a callback that saves the model's weights
 
     strip_chars = string.punctuation
@@ -641,10 +643,11 @@ for line in lines[args.index:]:
             train_out_texts = [pair[1] for pair in train_pairs]
 
         if (os.path.isdir(vectorizer_dir)
-                and os.path.isfile(vectorizer_dir+'in_vect_model')
-                and os.path.isfile(vectorizer_dir+'out_vect_model')):
+                and set(os.listdir(vectorizer_dir)) == set(
+                    ['in_vect_model', 'out_vect_model'])):
             input_vectorizer =  load_vectorizer(vectorizer_dir+'in_vect_model')
             output_vectorizer = load_vectorizer(vectorizer_dir+'out_vect_model')
+            logging.info("Loaded already existent input and output vectorizers...")
         else:
             input_vectorizer = layers.experimental\
                                      .preprocessing\
@@ -671,7 +674,7 @@ for line in lines[args.index:]:
             save_vectorizer(
                 vectorizer=output_vectorizer,
                 to_file=vectorizer_dir+'out_vect_model')
-        st()
+
         train_ds = make_dataset(train_pairs)
         test_ds = make_dataset(
             test_pairs, include_pmid=pmid_val_labels)
@@ -734,6 +737,10 @@ for line in lines[args.index:]:
                 callbacks=[ #cp_callback,
                             es_callback])
         logging.info("TRAINED!!")
+        logging.info("Saving learned weights to {}\n".format(
+            out_dir+'transformer_model_weights/model'))
+        transformer.save_weights(out_dir+'transformer_model_weights/model')
+
         rdf = pd.DataFrame(history.history)
         rdf.to_csv(out_dir + "history.csv")
 
@@ -747,9 +754,6 @@ for line in lines[args.index:]:
         - must be the same paramers when you load the model
         - if you specify a directory, you will save them without a prefix
         """
-        logging.info("Saving learned weights to {}\n".format(
-            out_dir+'transformer_model_weights/model'))
-        transformer.save_weights(out_dir+'transformer_model_weights/model')
 
     else:
         # vectorizers have been loaded previously
