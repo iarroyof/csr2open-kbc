@@ -581,7 +581,7 @@ for line in lines[args.index:]:
     if to_predict and train_flag:
         logging.warning("Train (-tf) and make predictions (-mp) flags activated"
             " require a LONG TIME if --nDemo is not set to small integer. Go to"
-            " your city downtown for a cofe, return and take a sit...")
+            " your city downtown for a coffee, return and take a sit...")
 
     checkpoint_path = ("results/transformer-{}_index-{}_epochs"
         "-{}_stackSize-{}_seqlen-{}_maxfeat-{}_batch-{}_keydim"
@@ -602,7 +602,8 @@ for line in lines[args.index:]:
     checkpoint_dir = os.path.dirname(checkpoint_path)
     logging.info(checkpoint_path)
     out_dir = checkpoint_dir + '/'
-    vectorizer_dir = out_dir.split('_')[0] + '_vectorizer/'
+    vectorizer_dir = "results/transformer-{}_seqlen-{}".format(
+        dataset_name, sequence_length) + '_vectorizer/'
     # Create a callback that saves the model's weights
 
     strip_chars = string.punctuation
