@@ -719,15 +719,20 @@ def make_dataset(text, batch_size, return_in_out_text=False, include_id=False):
             include_labels=cs_labels,
             all_start_end=True,
             include_pmid=include_id), text))
-
-    inp = [inp for inp, targ in pairs]
-    targ = [targ for inp, targ in pairs]
+    try:
+        inp, targ = map(list, zip(*pairs))
+    except ValueError:
+        inp, targ, ids = map(list, zip(*pairs))
+    
     BUFFER_SIZE = len(inp)
     dataset = tf.data.Dataset.from_tensor_slices((inp, targ)) \
                 .shuffle(BUFFER_SIZE)
     dataset = dataset.batch(batch_size)
 
-    return dataset if not return_in_out_text else (dataset, inp, targ)
+    if include_id:
+        return (dataset, inp, targ, ids) if return_in_out_text else (dataset, ids)
+    else:
+        return (dataset, inp, targ) if return_in_out_text else dataset
 
 def load_vectorizer(from_file):
     loaded_vectorizer_model =  tf.keras.models.load_model(from_file)
@@ -768,7 +773,9 @@ parser.add_argument("-f", "--nFeatures", type=int,
 parser.add_argument("-e", "--nEpochs", type=int,
     default=100, help = "Number of training epochs (training can stop earlier"
         " as improvements do not overmoce 0.005*loss within 10 epochs.)") # base = 30
-
+parser.add_argument("-D", "--nDemo", type=int,
+    default=-1, help = "Number of predicted test samples to save as output"
+        ". Only has effect when -mp parameter is enabled.")
 parser.add_argument("-vD", "--validData", type=str,
     default="data/oie-gp_target/ncd_gp_valid.tsv",
     help = "Valid data (TSV file)")
@@ -782,9 +789,9 @@ parser.add_argument("-dN", "--datasetName", type=str,
     help = "Prefix name used for output directory naming")
 
 parser.add_argument("-gf", "--gridFile", type=str,
-    default="dummy_attentionGru_grid.csv",# "/home/vitrion/transformerGrid.csv",
+    default="/home/vitrion/attentionGruGrid.csv",
     help="Hyperparameter grid must have the following columns:"
-    " (i, stack_size, sequence_length, batch_size, embedding_dim, units)")
+    " (i, sequence_length, batch_size, embedding_dim, units)")
 
 parser.add_argument("-i", "--index", type=int,
     default=0, help = "Start index")
@@ -825,17 +832,23 @@ Translator.tokens_to_text = tokens_to_text
 Translator.sample = sample
 Translator.translate = translate_unrolled
 Translator.tf_translate = tf_translate
+es_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                    patience= 10,
+                                                    min_delta=0.005,
+                                                    mode='auto',
+                                                    restore_best_weights=True,
+                                                    verbose=1)
+if train_flag:
+    with open(training_data) as f:
+        train_text = f.readlines()
 
-with open(training_data) as f:
-    train_text = f.readlines()
-
-with open(test_data) as f:
-    test_text = f.readlines()
-
-with open(validation_data) as f:
-    val_text = f.readlines()
+    with open(test_data) as f:
+        test_text = f.readlines()
+if eval or to_predict:
+    with open(validation_data) as f:
+        val_text = f.readlines()
 # --------------------------------- MALLA -------------------------------------
-#with open('/home/vitrion/transformerGrid.csv') as f:
+#DEFAULT: with open('home/vitrion/attentionGruGrid.csv') as f:
 with open(args.gridFile) as f:
     lines = f.readlines()
 lines = np.array(lines)
@@ -858,16 +871,15 @@ for line in lines[args.index:]:
     if line.startswith("#"): continue
     p = line.strip().split(',')[:6]
     # Hyperparameters
-    (i, stack_size, sequence_length, batch_size,
+    (i, sequence_length, batch_size,
         embedding_dim, units) = list(map(int, p))
 
     checkpoint_path = ("results/attentionGRU-{}_index-{}_epochs-{}_"
-        "stackSize-{}_seqlen-{}_maxfeat-{}_batch-{}_"
+        "seqlen-{}_maxfeat-{}_batch-{}_"
         "modeldim-{}_units-{}/cp.ckpt".format(
             dataset_name,
             str(i).zfill(3),
             n_epochs,
-            stack_size,
             sequence_length,
             max_features,
             batch_size,
@@ -885,12 +897,23 @@ for line in lines[args.index:]:
                                                     verbose=1)
     vectorizer_dir = "results/attentionGRU-{}_seqlen-{}".format(
         dataset_name, sequence_length) + '_vectorizer/'
-    test_dataset = make_dataset(test_text, batch_size, include_id=True)
-    val_dataset = make_dataset(val_text, batch_size, include_id=True)
+    
+    if eval and to_predict:
+        val_dataset, val_input, val_out, val_ids = make_dataset(
+            val_text, batch_size, include_id=True, return_in_out_text=True)
+        val_pairs = zip(val_input, val_out)
+    elif eval and not to_predict:
+        val_dataset, val_ids = make_dataset(
+            val_text, batch_size, include_id=True)
+  
     if (os.path.isdir(vectorizer_dir)
                 and set(os.listdir(vectorizer_dir)) == set(
                     ['in_vect_model', 'out_vect_model'])):
-        dataset = make_dataset(train_text, batch_size)
+        if train_flag:
+            dataset = make_dataset(train_text, batch_size)
+            test_dataset, test_ids = make_dataset(
+                test_text, batch_size, include_id=True)
+
         input_vectorizer =  load_vectorizer(vectorizer_dir+'in_vect_model')
         output_vectorizer = load_vectorizer(vectorizer_dir+'out_vect_model')
         logging.info("Loaded already existent input and output vectorizers from"
@@ -933,52 +956,81 @@ for line in lines[args.index:]:
     BUFFER_SIZE = len(train_text)
     steps_per_epoch= len(train_text)//batch_size
 
-
     train_translator = TrainTranslator(
         embedding_dim, units,
         input_text_processor=input_vectorizer,
         output_text_processor=output_vectorizer)
-
-    translator = Translator(
-        encoder=train_translator.encoder,
-        decoder=train_translator.decoder,
-        input_text_processor=input_vectorizer,
-        output_text_processor=output_vectorizer,
-    )
-
+    if train_flag:
     # Configure the loss and optimizer
-    train_translator.compile(
-        optimizer=tf.optimizers.Adam(),
-        loss=MaskedLoss()
-    )
-    st()
-    history = train_translator.fit(
-        dataset,
-        validation_data=test_dataset,
-        epochs=n_epochs,
-        callbacks=[train_loss, train_accu, cp_callback])
+        train_translator.compile(
+            optimizer=tf.optimizers.Adam(),
+            loss=MaskedLoss()
+        )
 
-    rdf = pd.DataFrame(history.history)
-    rdf.to_csv(out_dir + "history.csv")
+        history = train_translator.fit(
+            dataset,
+            validation_data=test_dataset,
+            epochs=n_epochs,
+            callbacks=[train_loss, train_accu, cp_callback, es_callback])
 
-    fig, axes = plt.subplots(2, 1)
-    rdf[sort_cols(rdf.columns)].iloc[:, :2].plot(ax=axes[0])
-    rdf[sort_cols(rdf.columns)].iloc[:, 2:].plot(ax=axes[1])
-    plt.savefig(out_dir + 'history_plot.pdf')
+        rdf = pd.DataFrame(history.history)
+        rdf.to_csv(out_dir + "history.csv")
 
+        fig, axes = plt.subplots(2, 1)
+        rdf[sort_cols(rdf.columns)].iloc[:, :2].plot(ax=axes[0])
+        rdf[sort_cols(rdf.columns)].iloc[:, 2:].plot(ax=axes[1])
+        plt.savefig(out_dir + 'history_plot.pdf')
+    else:
+        train_translator.load_weights(checkpoint_path)
+        train_translator.compile(
+            optimizer=tf.optimizers.Adam(),
+            loss=MaskedLoss()
+        )
+        logging.info("Loaded pretrained Attentional GRU EncoDec from"
+        "{} ...".format(checkpoint_path))
     #plot_model(train_translator, to_file=out_dir + "architecture.pdf", show_shapes=True)
+    if eval:
+        val_file = out_dir + 'evaluation_on_validation_data.txt'
+        logging.info(
+            'Validating AttentionalGRU Semantic EncoDec to {}'.format(val_file))
+        with open(val_file, 'w') as ev:
+            val_loss, val_acc = train_translator.evaluate(val_dataset)
+            line = 'Validation_loss: {}\nValidation_acc: {}\n'.format(
+                val_loss, val_acc)
+            ev.write(line)
+        logging.info("Model evaluated. See results in {}".format(val_file))
+    
+    if to_predict:
+        logging.info(
+            'Making predictions with AttentionalGRU Semantic EncoDec to {}'\
+                .format(val_file))
+        translator = Translator(
+            encoder=train_translator.encoder,
+            decoder=train_translator.decoder,
+            input_text_processor=input_vectorizer,
+            output_text_processor=output_vectorizer,
+            )
+        if not (n_demo < 0 or isinstance(n_demo, str)):
+            val_pairs = list(val_pairs)
+            random.shuffle(val_pairs)
+            val_pairs = val_pairs[:n_demo]
 
-    if not (n_demo < 0 or isinstance(n_demo, str)):
-        random.shuffle(val_pairs)
-        val_pairs = val_pairs[:n_demo]
+        try:
+            inp_, targ_ = map(list, zip(*val_pairs))
+        except ValueError:
+            inp_, targ_, ids = map(list, zip(*val_pairs))
+        inp = tf.constant(inp_)
 
-    inp_ = [
-        inp for inp, targ in val_pairs]
-    targ_ = [
-        targ for inp, targ in val_pairs]
-    inp = tf.constant(inp_)
-
-    result = translator.tf_translate(inp)
-    result = pd.DataFrame({'Subj_Pred': inp, 'Obj': result['text'].numpy(), 'Obj_true': targ_})
-    result.to_csv(out_dir + 'predictions.csv')
-    print(result)
+        result = translator.tf_translate(inp)
+        result = pd.DataFrame({
+            'Subj_Pred': inp,
+            'Obj': result['text'].numpy(),
+            'Obj_true': targ_}
+          )
+        try:
+            result['IDs'] = ids
+        except NameError:
+            pass
+        
+        result.to_csv(out_dir + 'val_predictions.csv')
+        print(result)
