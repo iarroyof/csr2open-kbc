@@ -509,7 +509,7 @@ parser.add_argument("-gf", "--gridFile", type=str,
     default="/home/vitrion/transformerGrid.csv",
     help="Hyperparameter grid must have the following columns:"
     " (i, stack_size, batch_size, sequence_length, "
-        "model_dim, embedding_dim, latent_dim, num_heads)")
+        "model_dim, latent_dim, num_heads)")
 
 parser.add_argument("-i", "--index", type=int,
     default=0, help = "Start index")
@@ -570,7 +570,7 @@ for line in lines[args.index:]:
     p = line.strip().split(',')[:8]
     # Hyperparameters
     (i, stack_size, batch_size, sequence_length,
-        model_dim, embedding_dim, latent_dim, num_heads) = list(map(int, p))
+        model_dim, latent_dim, num_heads) = list(map(int, p))
     # Input data
     training_data = args.trainData
     testing_data = args.testData
