@@ -723,7 +723,7 @@ def make_dataset(text, batch_size, return_in_out_text=False, include_id=False):
         inp, targ = map(list, zip(*pairs))
     except ValueError:
         inp, targ, ids = map(list, zip(*pairs))
-    
+
     BUFFER_SIZE = len(inp)
     dataset = tf.data.Dataset.from_tensor_slices((inp, targ)) \
                 .shuffle(BUFFER_SIZE)
@@ -833,8 +833,8 @@ Translator.sample = sample
 Translator.translate = translate_unrolled
 Translator.tf_translate = tf_translate
 es_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                    patience= 10,
-                                                    min_delta=0.005,
+                                                    patience= 1, #10,
+                                                    min_delta= 1, #0.005,
                                                     mode='auto',
                                                     restore_best_weights=True,
                                                     verbose=1)
@@ -897,7 +897,7 @@ for line in lines[args.index:]:
                                                     verbose=1)
     vectorizer_dir = "results/attentionGRU-{}_seqlen-{}".format(
         dataset_name, sequence_length) + '_vectorizer/'
-    
+
     if eval and to_predict:
         val_dataset, val_input, val_out, val_ids = make_dataset(
             val_text, batch_size, include_id=True, return_in_out_text=True)
@@ -905,14 +905,14 @@ for line in lines[args.index:]:
     elif eval and not to_predict:
         val_dataset, val_ids = make_dataset(
             val_text, batch_size, include_id=True)
-  
+    if train_flag:
+        dataset = make_dataset(train_text, batch_size)
+        test_dataset, test_ids = make_dataset(
+            test_text, batch_size, include_id=True)
+
     if (os.path.isdir(vectorizer_dir)
                 and set(os.listdir(vectorizer_dir)) == set(
                     ['in_vect_model', 'out_vect_model'])):
-        if train_flag:
-            dataset = make_dataset(train_text, batch_size)
-            test_dataset, test_ids = make_dataset(
-                test_text, batch_size, include_id=True)
 
         input_vectorizer =  load_vectorizer(vectorizer_dir+'in_vect_model')
         output_vectorizer = load_vectorizer(vectorizer_dir+'out_vect_model')
@@ -999,7 +999,7 @@ for line in lines[args.index:]:
                 val_loss, val_acc)
             ev.write(line)
         logging.info("Model evaluated. See results in {}".format(val_file))
-    
+
     if to_predict:
         logging.info(
             'Making predictions with AttentionalGRU Semantic EncoDec to {}'\
@@ -1031,6 +1031,6 @@ for line in lines[args.index:]:
             result['IDs'] = ids
         except NameError:
             pass
-        
+
         result.to_csv(out_dir + 'val_predictions.csv')
         print(result)
