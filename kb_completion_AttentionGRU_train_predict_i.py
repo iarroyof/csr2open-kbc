@@ -833,8 +833,8 @@ Translator.sample = sample
 Translator.translate = translate_unrolled
 Translator.tf_translate = tf_translate
 es_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                    patience= 1, #10,
-                                                    min_delta= 1, #0.005,
+                                                    patience=10,
+                                                    min_delta=0.005,
                                                     mode='auto',
                                                     restore_best_weights=True,
                                                     verbose=1)
